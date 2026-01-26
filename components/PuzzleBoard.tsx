@@ -15,6 +15,10 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [isCompletionGlowActive, setIsCompletionGlowActive] = useState(false);
+  
+  // Track previous solved state to detect transition
+  const prevSolvedRef = useRef(game.isSolved);
 
   // Initialize the puzzle pieces from the source image
   useEffect(() => {
@@ -82,16 +86,28 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
 
   // Trigger win effect
   useEffect(() => {
-    if (game.isSolved && game.pieces.length > 0 && game.isPlaying) {
+    // Fire completion effects only when transitioning from not solved to solved
+    if (game.isSolved && !prevSolvedRef.current && game.pieces.length > 0) {
+      // Confetti burst
       confetti({
         particleCount: 150,
-        spread: 70,
+        spread: 80,
         origin: { y: 0.6 },
-        colors: ['#6366f1', '#8b5cf6', '#ec4899']
+        colors: ['#6366f1', '#8b5cf6', '#ec4899', '#f472b6', '#fbbf24']
       });
+
+      // Activate board glow for 5 seconds
+      setIsCompletionGlowActive(true);
+      const timer = setTimeout(() => {
+        setIsCompletionGlowActive(false);
+      }, 5000);
+
       onWin();
+      
+      return () => clearTimeout(timer);
     }
-  }, [game.isSolved, game.isPlaying]);
+    prevSolvedRef.current = game.isSolved;
+  }, [game.isSolved, onWin]);
 
   // Drag Handlers
   const handleDragStart = (e: React.DragEvent, pieceId: number) => {
@@ -99,10 +115,9 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
       e.preventDefault();
       return;
     }
-    e.stopPropagation(); // Stop bubbling to prevent any parent drag issues
+    e.stopPropagation(); 
     setDraggingId(pieceId);
     e.dataTransfer.effectAllowed = 'move';
-    // Fallback for some browsers, though we primarily use state now
     e.dataTransfer.setData('text/plain', pieceId.toString());
   };
 
@@ -117,9 +132,8 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
 
   const handleDropOnBoard = (e: React.DragEvent, targetIndex: number) => {
     e.preventDefault();
-    e.stopPropagation(); // Critical: Stop bubbling so the parent slot doesn't also try to handle it
+    e.stopPropagation(); 
     
-    // Prioritize state, fallback to dataTransfer if needed (rare)
     let pieceId = draggingId;
     if (pieceId === null) {
       const idStr = e.dataTransfer.getData('text/plain');
@@ -151,7 +165,6 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
   // Render logic
   const gridSlots = Array(game.rows * game.cols).fill(null);
   
-  // Pieces that are currently on the board for quick lookup
   const placedPieces = new Map<number, PuzzlePiece>();
   game.pieces.forEach(p => {
     if (p.currentPos !== null) {
@@ -159,7 +172,6 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
     }
   });
 
-  // Calculate remaining count for display
   const piecesRemaining = game.pieces.filter(p => p.currentPos === null).length;
 
   return (
@@ -169,7 +181,10 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
       <div 
         id="puzzle-board-area"
         ref={containerRef}
-        className="relative bg-slate-100 rounded-lg shadow-inner border-2 border-slate-300 transition-all duration-300"
+        className={`
+          relative bg-slate-100 rounded-lg shadow-inner border-2 transition-all duration-500
+          ${isCompletionGlowActive ? 'animate-completion-glow border-indigo-400' : 'border-slate-300'}
+        `}
         style={{
           width: containerSize.width,
           height: containerSize.height,
@@ -186,7 +201,6 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
 
         {containerSize.width && gridSlots.map((_, index) => {
           const piece = placedPieces.get(index);
-          const isCorrect = piece && piece.correctPos === index;
 
           return (
             <div
@@ -204,11 +218,10 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
                   draggable={game.isPlaying}
                   onDragStart={(e) => handleDragStart(e, piece.id)}
                   onDragEnd={handleDragEnd}
-                  /* ADDED: Allow drop on the piece itself (replaces it) */
                   onDragOver={handleDragOver}
                   onDrop={(e) => handleDropOnBoard(e, index)}
                   className={`
-                    w-full h-full shadow-sm z-10 transition-transform
+                    w-full h-full shadow-sm z-10 transition-transform duration-300
                     ${game.isPlaying ? 'cursor-grab active:cursor-grabbing hover:brightness-110' : ''}
                     ${draggingId === piece.id ? 'opacity-50' : 'opacity-100'}
                   `}
@@ -222,7 +235,7 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
           );
         })}
 
-        {/* Start Overlay: "絵を憶えたら START" */}
+        {/* Start Overlay */}
         {!game.isPlaying && !game.isSolved && piecesRemaining === 0 && game.pieces.length > 0 && (
            <div id="start-button-area" className="absolute inset-0 flex items-end justify-center pb-12 z-30 pointer-events-none">
               <div className="pointer-events-auto bg-white/90 backdrop-blur-md px-10 py-6 rounded-2xl shadow-xl border border-white/50 text-center animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -243,10 +256,13 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
         {/* Solved Overlay */}
         {game.isSolved && (
           <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
-            <div className="bg-white/90 p-6 rounded-2xl shadow-2xl backdrop-blur-sm transform scale-110 animate-[bounce_1s_infinite]">
-              <h2 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600">
-                完成！
-              </h2>
+            <div className="bg-white/95 p-8 rounded-3xl shadow-2xl backdrop-blur-md transform scale-110 animate-in zoom-in duration-500">
+              <div className="text-center">
+                <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 tracking-tight animate-pulse">
+                  完成！
+                </h2>
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-2">Congratulations!</p>
+              </div>
             </div>
           </div>
         )}
@@ -280,10 +296,6 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
         <div className="flex flex-wrap gap-2 justify-center content-start">
           {game.pieces.map((piece) => {
             const isInTray = piece.currentPos === null;
-            
-            // If we are not playing, we generally don't want to show the huge grid of empty slots
-            // unless we want a consistent layout. But usually users just want to see the tray 'stable' during play.
-            // When game.isPlaying is false, pieces are all on board (preview), so tray should be empty.
             if (!game.isPlaying && !isInTray) return null;
 
             if (isInTray) {
@@ -298,7 +310,6 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
                     ${draggingId === piece.id ? 'opacity-50' : 'opacity-100'}
                   `}
                   style={{
-                    // Use 0.5 for smaller pieces in tray
                     width: piece.width * 0.5, 
                     height: piece.height * 0.5,
                     backgroundImage: `url(${piece.imageData})`,
@@ -306,19 +317,8 @@ const PuzzleBoard: React.FC<PuzzleBoardProps> = ({ game, onMove, onInit, onWin, 
                   }}
                 />
               );
-            } else {
-              // Placeholder for piece that is on the board
-              return (
-                 <div
-                  key={`tray-placeholder-${piece.id}`}
-                  className="rounded-sm border border-slate-200 border-dashed bg-slate-100 hidden" // Hidden placeholder to tighten layout
-                  style={{
-                    width: piece.width * 0.5, 
-                    height: piece.height * 0.5,
-                  }}
-                />
-              );
             }
+            return null;
           })}
         </div>
       </div>
